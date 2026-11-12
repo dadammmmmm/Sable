@@ -32,8 +32,8 @@ html,body{margin:0;height:100%;background:#1a1613;overflow:hidden;overscroll-beh
   // Grid dimensions for a natural-frame viewport of wCss x hCss CSS px.
   // `cells` = cell budget (the app picks it from a quick speed test of the device: 50k slow ... 110k fast).
   SAND.gridFor = function (wCss, hCss, cells) {
-    cells = cells > 20000 ? cells : 50000;
-    const cellCss = Math.max(2.3, Math.sqrt((wCss * hCss) / cells));
+    cells = cells > 20000 ? cells : 70000;
+    const cellCss = Math.max(2.6, Math.sqrt((wCss * hCss) / cells));
     const W = Math.max(8, Math.round(wCss / cellCss)), H = Math.max(8, Math.round(hCss / cellCss));
     return { W, H, cellMM: (wCss / W) * SAND.MM_PER_CSS_PX, cellCss: wCss / W };
   };
@@ -248,12 +248,12 @@ html,body{margin:0;height:100%;background:#1a1613;overflow:hidden;overscroll-beh
     RIM_FLARE: 1.0,          // sand heaped up beside the tool is levelled off at about this * levee height above the old surface
     CREST_ROUND: 0.3,        // smoothing of that sand per stamp (rounded crests)
     CARVE_REACH: 22,         // mm: farthest the collapse cone is followed from the tool axis (slopes, piles)
-    TIP_K: 0.42, TIP_MIN: 1.9, TIP_MAX: 4.0,   // radius of the finger tip (mm) = clamp(TIP_K * contact radius): 4.5 -> 1.9, 5.5 -> 2.3, 7 -> 2.9, 9 -> 3.8
+    TIP_K: 0.30, TIP_MIN: 1.3, TIP_MAX: 2.6,   // radius of the finger tip (mm) = clamp(TIP_K * contact radius): 4.5 -> 1.9, 5.5 -> 2.3, 7 -> 2.9, 9 -> 3.8
     TIP_FLAT: 0.72,          // half-width of the rounded bottom it leaves / tip radius
     RADIUS_MIN: 3, RADIUS_MAX: 9, RADIUS_DEF: 5.5,   // contact radius accepted from the app (mm)
     BOW_FWD: 0.50,          // reach of the deposit straight ahead / reach to the sides (slow strokes): the end mound
-    DEPTH_0: 0.50,           // indentation depth (mm, absolute) = DEPTH_0 + DEPTH_1 f + DEPTH_5 f^5
-    DEPTH_1: 1.50,           //   -> 1.5 mm at force 0.5, 3.4 mm at 0.75, floor of a 6 mm bed from force ~0.9
+    DEPTH_0: 0.35,           // indentation depth (mm, absolute) = DEPTH_0 + DEPTH_1 f + DEPTH_5 f^5
+    DEPTH_1: 1.10,           //   -> 1.5 mm at force 0.5, 3.4 mm at 0.75, floor of a 6 mm bed from force ~0.9
     DEPTH_5: 7.50,
     PRESS_THROUGH: 1.5,      // mm the tip may go "below" the floor: a hard press bares a strip of finite width
     DEPTH_JITTER: 0.05,      // relative depth jitter along the path ...
@@ -262,7 +262,7 @@ html,body{margin:0;height:100%;background:#1a1613;overflow:hidden;overscroll-beh
     AUTO_FORCE: 0.5,         // force used when the app passes force = -1 (no pressure sensor) ...
     PRESS_DELAY: 0.06,       // ... rising after this dwell (s) ...
     PRESS_RATE: 2.9,         // ... at this rate (1/s) by up to ...
-    PRESS_GAIN: 0.25,        // ... this much (a landing pause adds a little; 0.75 after ~0.4 s)
+    PRESS_GAIN: 0.08,        // ... this much (a landing pause adds a little; 0.75 after ~0.4 s)
     PRESS_FADE_MM: 25,       // a dwell-press fades out smoothly (and monotonically) over this path length once the finger moves
     DEEP_DELAY: 1.1,         // s: only a finger that has been resting longer than this presses through ...
     DEEP_RATE: 8.0,          // ... (rising at this rate, 1/s) ...
@@ -278,9 +278,9 @@ html,body{margin:0;height:100%;background:#1a1613;overflow:hidden;overscroll-beh
     SPRAY_K: 0.30,           // extra throw distance = SPRAY_K * v^2 / G
     SPRAY_MAX: 14,           // mm
     RAKE_TINES: 5,
-    RAKE_SPACING: 0.85,      // * contact radius
-    RAKE_TINE: 0.55,         // mm: half-width of a tine tip
-    RAKE_DEPTH: 0.9,         // mm at force 0.5 (scales with 0.5 + force)
+    RAKE_SPACING: 0.55,      // * contact radius
+    RAKE_TINE: 0.42,         // mm: half-width of a tine tip
+    RAKE_DEPTH: 0.6,         // mm at force 0.5 (scales with 0.5 + force)
     FLOW_VREF: 60,           // mm/s: all the sand moving at this speed = flow index 1 before compression
     IMPACT_A0: 80,           // mm/s^2: mean deceleration of the whole bed below which nothing is reported (gentle stops)
     IMPACT_AREF: 600,        // mm/s^2: mean deceleration above IMPACT_A0 that gives impact 0.5 (x/(1+x) compression)
@@ -1749,7 +1749,7 @@ html,body{margin:0;height:100%;background:#1a1613;overflow:hidden;overscroll-beh
           const l2 = Math.sqrt((px - sx) * (px - sx) + (py - sy) * (py - sy));
           // every tine throws its own little berms: the ridges between the grooves stand above the surface
           const Vq = carveHead(sx, sy, px, py, R, za, zt1, t.dirX, t.dirY, l2, t.snap, zF, dsurf);
-          if (Vq > 0) { deposit(px, py, t.dirX, t.dirY, Vq, dsurf, Hr, l2, moving, t.speed); V += Vq; }
+          if (Vq > 0) { depositSide(px, py, t.dirX, t.dirY, Vq, sp, l2); V += Vq; }
           t.hx[q] = px; t.hy[q] = py;
         }
         t.headsOk = true;
@@ -1852,6 +1852,31 @@ html,body{margin:0;height:100%;background:#1a1613;overflow:hidden;overscroll-beh
     // Put the volume V back as a berm: a forward crescent (bow wave) when the tool moves, a ring
     // when it only presses.  rIn = lip radius of the tool at the reference level, Hr = expected
     // berm height.
+    // Rake tine: the sand it lifts is not pushed ahead (five bow waves merge into one heap that the rake then drags
+    // along and dumps at the end of the stroke) but laid down beside it, just behind the tip: the ridges between
+    // the grooves. Two soft lobes at +-sp/2 across the stroke, mass-exact.
+    function depositSide(bx, by, dirx, diry, V, sp, len) {
+      /*@alias*/ const h$ = h, act$ = act, dX$ = dX, dY$ = dY, scr$ = scr, W$ = W | 0, H$ = H | 0, cell$ = +cell, inv$ = +inv;
+      const nx = -diry, ny = dirx, half = 0.5 * sp, sg = Math.max(0.8 * cell$, 0.2 * sp), is2 = 1 / (2 * sg * sg);
+      const back = Math.max(2 * cell$, 0.9 * sp), fore = Math.max(cell$, 0.25 * sp), rOut = Math.max(back, half + 2.5 * sg) + cell$;
+      let di0 = Math.floor((bx - rOut) * inv$), di1 = Math.ceil((bx + rOut) * inv$), dj0 = Math.floor((by - rOut) * inv$), dj1 = Math.ceil((by + rOut) * inv$);
+      if (di0 < 0) di0 = 0; if (dj0 < 0) dj0 = 0; if (di1 > W$ - 1) di1 = W$ - 1; if (dj1 > H$ - 1) dj1 = H$ - 1;
+      let sum = 0;
+      for (let j = dj0; j <= dj1; j++) { const yy = (j + 0.5) * cell$ - by, o = j * W$;
+        for (let i = di0; i <= di1; i++) { const xx = (i + 0.5) * cell$ - bx, k = o + i;
+          const lon = xx * dirx + yy * diry, lat = Math.abs(xx * nx + yy * ny) - half;
+          let wl = lon > 0 ? 1 - lon / fore : 1 + lon / back; if (wl <= 0) { scr$[k] = 0; continue; }
+          wl = wl * wl * (3 - 2 * wl);
+          const w = wl * Math.exp(-lat * lat * is2); scr$[k] = w; sum += w; } }
+      if (!(sum > 1e-9)) { deposit(bx, by, dirx, diry, V, sp, 0.3, len, false, 0); return; }
+      const sc = V / sum;
+      for (let j = dj0; j <= dj1; j++) { const yy = (j + 0.5) * cell$ - by, o = j * W$;
+        for (let i = di0; i <= di1; i++) { const k = o + i, w = scr$[k];
+          if (w > 0) { const add = w * sc; h$[k] += add; if (act$[k] < 1) act$[k] = 1;
+            const xx = (i + 0.5) * cell$ - bx, lt = xx * nx + yy * ny, m = Math.min(2 * cell$, add * 3 + len * w) * (lt < 0 ? -1 : 1);
+            dX$[k] += nx * m; dY$[k] += ny * m; } } }
+      if (di0 < sbI0) sbI0 = di0; if (di1 > sbI1) sbI1 = di1; if (dj0 < sbJ0) sbJ0 = dj0; if (dj1 > sbJ1) sbJ1 = dj1;
+    }
     function deposit(bx, by, dirx, diry, V, rIn, Hr, len, isMoving, spd) {
       /*@alias*/ const h$ = h, act$ = act, dX$ = dX, dY$ = dY, scr$ = scr, mu$ = mu, W$ = W | 0, H$ = H | 0, cell$ = +cell, inv$ = +inv;
       const mw = P.WALL_SLOPE, mo = P.RIM_SLOPE, dn = P.DEPOSIT_NOISE / (0.05 * P.MU_S);
@@ -3053,8 +3078,12 @@ float vnz(vec2 x, int seed){
 }
 void main(){
   vec2 p = gl_FragCoord.xy*uInv*uGridMM;
-  float n1 = vnz(p*0.31, 1), n2 = vnz(p*2.3 + 9.0, 2), n3 = vnz(p*9.0, 3), n4 = vnz(p*min(30.0, 0.45/uPxMM), 4);
-  float tone = clamp(0.5 + (n1 - 0.5)*0.6 + (n2 - 0.5)*0.35 + (n3 - 0.5)*0.25 + (n4 - 0.5)*0.30, 0.0, 1.0);
+  // Tone: tray-scale drift + a few rotated, domain-warped octaves. (Plain axis-aligned value noise at one dominant
+  // scale read as a regular pattern of blotches on a real phone.)
+  vec2 q = p + 3.5*vec2(vnz(p*0.06, 11), vnz(p*0.06 + 17.0, 12)) + 0.9*vec2(vnz(p*0.37 + 3.0, 14), vnz(p*0.37 + 41.0, 15));
+  vec2 q1 = vec2(0.80*q.x + 0.60*q.y, -0.60*q.x + 0.80*q.y), q2 = vec2(0.28*q.x + 0.96*q.y, -0.96*q.x + 0.28*q.y);
+  float n0 = vnz(q*0.040, 13), n1 = vnz(q1*0.17, 1), n2 = vnz(q2*0.83 + 9.0, 2), n3 = vnz(q1*5.3, 3), n4 = vnz(p*min(30.0, 0.45/uPxMM), 4);
+  float tone = clamp(0.5 + (n0 - 0.5)*0.42 + (n1 - 0.5)*0.24 + (n2 - 0.5)*0.13 + (n3 - 0.5)*0.10 + (n4 - 0.5)*0.22, 0.0, 1.0);
   // scratches: four families of slightly wavy hairlines, each broken into random strokes
   float scr = 0.0;
   vec2 pw = p + 0.6*vec2(vnz(p*0.11, 5), vnz(p*0.11 + 31.0, 6));
@@ -3077,7 +3106,7 @@ void main(){
     float has = step(1.0 - (i == 0 ? 0.06 : 0.12), uf(hu(mh + 3u)));
     mote = max(mote, has*smoothstep(mr + 0.7*uPxMM, mr - 0.7*uPxMM, md)*min(1.0, mr*mr/(0.5*uPxMM*uPxMM) + 0.25)*(0.5 + 0.5*uf(hu(mh + 4u))));
   }
-  o = vec4(tone, clamp(scr, 0.0, 1.0), mote*0.85, vnz(p*0.9 + 5.0, 9)*vnz(p*4.7, 10));
+  o = vec4(tone, clamp(scr*0.55, 0.0, 1.0), mote*0.85, vnz(p*0.9 + 5.0, 9)*vnz(p*4.7, 10));
 }`;
 
   // upscale (internal scale < 1: one bilinear tap) or box-filtered downsample of a supersampled scene (four bilinear
@@ -3111,7 +3140,7 @@ void main(){ vec2 uv = vec2(vUV.x, 1.0 - vUV.y);
     // look constants (overridable for experiments: "#rdbg=K2.4,S0.7,...")
     const TUNE = { K: dbgNum('K', 2.2), S: dbgNum('S', 0.80), B: dbgNum('B', 0.16), ex: dbgNum('ex', 1), gam: dbgNum('gam', 1.0), bounce: dbgNum('bounce', 1.0),
       glint: dbgNum('glint', 1.0), lodb: dbgNum('lodb', 0.45), lods: dbgNum('lods', 0.55), und: dbgNum('und', 0.85),
-      stk: dbgNum('stk', 1.01), sta: dbgNum('sta', 0.08), stc: dbgNum('stc', 0.9), stl: dbgNum('stl', 0.3), crisp: dbgNum('crisp', 0.2), drift: dbgNum('drift', 0.10), wall: dbgNum('wall', 0.26), wallw: dbgNum('wallw', 2.0), shutter: dbgNum('sh', 120), v0: dbgNum('v0', 12), lmax: dbgNum('lmax', 2.0) };
+      stk: dbgNum('stk', 1.01), sta: dbgNum('sta', 0.08), stc: dbgNum('stc', 0.9), stl: dbgNum('stl', 0.3), crisp: dbgNum('crisp', 0.2), drift: dbgNum('drift', 0.10), wall: dbgNum('wall', 0.26), wallw: dbgNum('wallw', 2.0), shutter: dbgNum('sh', 240), v0: dbgNum('v0', 70), lmax: dbgNum('lmax', 0.9) };
     let palette = PALETTES[opts.palette] ? opts.palette : 'plage';
     let sim = null, ver = -1, rot = 0, bufW = canvas.width, bufH = canvas.height;
     let lost = false, floatRT = false, maxTex = 4096;
@@ -3606,7 +3635,7 @@ void main(){ vec2 uv = vec2(vUV.x, 1.0 - vUV.y);
     // (rAF capped at 30 Hz, CPU-bound), (c) adapts quickly when the GPU is hopelessly slow. On low-density
     // screens (fewer than ~5 device px per grain, i.e. DPR below ~1.7) the ladder has supersampled rungs above full
     // resolution, climbed only while frames stay short: grains become finely textured instead of pixel-sized.
-    const SUBS = [1, 0.85, 0.72, 0.6, 0.5];
+    const SUBS = [1, 0.85, 0.72];   // never below 0.72: on a real phone the lower rungs looked blurred, worst while the sand moves
     let SCALES = SUBS, BASE = 0, LAST = SUBS.length - 1;
     function ladder() {
       let sup = [];
