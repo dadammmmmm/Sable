@@ -30,8 +30,10 @@ html,body{margin:0;height:100%;background:#1a1613;overflow:hidden;overscroll-beh
   SAND.clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
   SAND.lerp = (a, b, t) => a + (b - a) * t;
   // Grid dimensions for a natural-frame viewport of wCss x hCss CSS px.
-  SAND.gridFor = function (wCss, hCss) {
-    const cellCss = Math.max(3.1, Math.sqrt((wCss * hCss) / 50000));
+  // `cells` = cell budget (the app picks it from a quick speed test of the device: 50k slow ... 110k fast).
+  SAND.gridFor = function (wCss, hCss, cells) {
+    cells = cells > 20000 ? cells : 50000;
+    const cellCss = Math.max(2.3, Math.sqrt((wCss * hCss) / cells));
     const W = Math.max(8, Math.round(wCss / cellCss)), H = Math.max(8, Math.round(hCss / cellCss));
     return { W, H, cellMM: (wCss / W) * SAND.MM_PER_CSS_PX, cellCss: wCss / W };
   };
@@ -262,7 +264,7 @@ html,body{margin:0;height:100%;background:#1a1613;overflow:hidden;overscroll-beh
     PRESS_RATE: 2.9,         // ... at this rate (1/s) by up to ...
     PRESS_GAIN: 0.25,        // ... this much (a landing pause adds a little; 0.75 after ~0.4 s)
     PRESS_FADE_MM: 25,       // a dwell-press fades out smoothly (and monotonically) over this path length once the finger moves
-    DEEP_DELAY: 0.6,         // s: only a finger that has been resting longer than this presses through ...
+    DEEP_DELAY: 1.1,         // s: only a finger that has been resting longer than this presses through ...
     DEEP_RATE: 8.0,          // ... (rising at this rate, 1/s) ...
     DEEP_GAIN: 0.5,          // ... by this much more force (floor of a 6 mm bed from ~0.7 s)
     DEEP_FADE_MM: 40,        // ... and that deep press fades over this path length (a bare strip that tapers)
@@ -2069,6 +2071,7 @@ html,body{margin:0;height:100%;background:#1a1613;overflow:hidden;overscroll-beh
   };
 })();
 
+
 /* ==== src/render.js ==== */
 // Sable — WebGL2 sand renderer. Owner: render agent.
 //
@@ -3470,7 +3473,9 @@ void main(){ vec2 uv = vec2(vUV.x, 1.0 - vUV.y);
 
     // ---- light: world-fixed key light and viewer, expressed in the grid frame via the gravity vector
     const L0S = (() => { const v = [-0.56, -0.62, 0.88], n = Math.hypot(v[0], v[1], v[2]); return [v[0] / n, v[1] / n, v[2] / n]; })();   // 46.5 deg elevation
-    const TILT_MAX = 0.30;       // rad; soft clamp of the tilt applied to the light
+    const TILT_MAX = 0.30;       // rad; soft clamp of the tilt applied to the viewer (glints)
+    const TILT_LIGHT = 0.07;     // rad; the key light itself barely follows the tilt: on a phone held in the hand a
+                                 // light that swings with the device goes grazing and every groove becomes a hard zebra
     function rotAxis(v, ax, ay, c, s) {  // Rodrigues, axis (ax, ay, 0)
       const d = ax * v[0] + ay * v[1];
       const cx = ay * v[2], cy = -ax * v[2], cz = ax * v[1] - ay * v[0];
@@ -3492,8 +3497,8 @@ void main(){ vec2 uv = vec2(vUV.x, 1.0 - vUV.y);
       const a = L0S[0], b = L0S[1];
       const l0 = rot === 1 ? [-b, a, L0S[2]] : rot === 2 ? [-a, -b, L0S[2]] : rot === 3 ? [b, -a, L0S[2]] : [a, b, L0S[2]];
       let L = l0, V = [0, 0, 1];
-      if (sxy > 1e-5) { const ax = -vy / sxy, ay = vx / sxy; L = rotAxis(l0, ax, ay, Math.cos(thc), Math.sin(thc)); V = rotAxis(V, ax, ay, Math.cos(thc * 0.6), Math.sin(thc * 0.6)); }
-      if (L[2] < 0.40) { L[2] = 0.40; const q = Math.sqrt((1 - 0.40 * 0.40) / (L[0] * L[0] + L[1] * L[1])); L[0] *= q; L[1] *= q; }
+      if (sxy > 1e-5) { const ax = -vy / sxy, ay = vx / sxy, thl = TILT_LIGHT * Math.tanh(th / 0.5); L = rotAxis(l0, ax, ay, Math.cos(thl), Math.sin(thl)); V = rotAxis(V, ax, ay, Math.cos(thc * 0.6), Math.sin(thc * 0.6)); }
+      if (L[2] < 0.66) { L[2] = 0.66; const q = Math.sqrt((1 - 0.66 * 0.66) / (L[0] * L[0] + L[1] * L[1])); L[0] *= q; L[1] *= q; }
       const hx = L[0] + V[0], hy = L[1] + V[1], hz = L[2] + V[2], hm = Math.hypot(hx, hy, hz);
       const Q = 1500; const key = Math.round(L[0] * Q) + ',' + Math.round(L[1] * Q) + ',' + Math.round(L[2] * Q) + ',' + Math.round(hx / hm * Q) + ',' + Math.round(hy / hm * Q);
       if (key !== light.key) { light.key = key; light.L = L; light.H = [hx / hm, hy / hm, hz / hm]; lightDirty = true; }
@@ -4281,6 +4286,7 @@ void main(){ vec2 uv = vec2(vUV.x, 1.0 - vUV.y);
 .sb-fatal p{margin:0}
 .sb-fatal small{display:block;margin-top:12px;font-size:12px;line-height:1.4;color:rgba(244,236,223,.48);overflow-wrap:anywhere}
 .sb-fatal .sb-reload{margin-top:20px;height:48px}
+.sb-dgl{margin:10px 6px 2px;font:10px/1.4 ui-monospace,Menlo,Consolas,monospace;color:rgba(244,236,223,.5);overflow-wrap:anywhere;-webkit-user-select:text;user-select:text}
 .sb-fatal .sb-copy{margin-top:14px;height:44px;font-size:15px}
 .sb-fatal .sb-diag{margin:14px 0 0;padding:10px 12px;max-height:34vh;overflow:auto;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.45 ui-monospace,Menlo,Consolas,monospace;color:rgba(244,236,223,.7);background:rgba(0,0,0,.28);border-radius:12px;-webkit-user-select:text;user-select:text;touch-action:pan-y}
 
@@ -4741,7 +4747,7 @@ void main(){ vec2 uv = vec2(vUV.x, 1.0 - vUV.y);
       // Unknown (mouse, or a browser that reports a 1 px contact): 5.5; a stylus tip: 3.
       const w = e.width * pz, h = e.height * pz;
       if (type === 'pen') return 3;
-      if (type === 'touch' && w > 2 && h > 2 && w < 400 && h < 400) return clamp(0.5 * Math.sqrt(w * h) * SAND.MM_PER_CSS_PX, 3, 9);
+      if (type === 'touch' && w > 2 && h > 2 && w < 400 && h < 400) return clamp(0.5 * Math.sqrt(w * h) * SAND.MM_PER_CSS_PX, 3.5, 7);
       return 5.5;
     }
     function contactForce(e, type) {
@@ -4749,7 +4755,9 @@ void main(){ vec2 uv = vec2(vUV.x, 1.0 - vUV.y);
       // speed). Mice report a constant 0.5 and most touch screens a constant 0.5 or 1, which must never be
       // mistaken for a measurement: pressure only counts once 4 distinct other values have been seen.
       const p = e.pressure;
-      if (type === 'mouse' || !(p > 0)) return -1;
+      // Only a stylus reports real force. Android touch "pressure" is derived from contact area and swings widely:
+      // on a real phone it sent every stroke to the tray floor (holes, huge grooves).
+      if (type !== 'pen' || !(p > 0)) return -1;
       if (!pInformative) {
         if (p !== 0.5 && p !== 1 && pSeen.indexOf(p) < 0) { pSeen.push(p); if (pSeen.length >= 4) pInformative = true; }
         if (!pInformative) return -1;
@@ -4815,6 +4823,7 @@ void main(){ vec2 uv = vec2(vUV.x, 1.0 - vUV.y);
     const isBusy = () => !!renderer && renderer.busy === true;       // resumable atlas bake still running
     // gravity: slow lighting pose (unit vector; never carries linear acceleration). gravityFast: the fast vector the sim
     // feels (recentred, shakes and jolts included). Both are exactly the override while __sand.setGravity() holds one.
+    let simMs = 0;
     const frameArg = { time: 0, gravity: [0, 0, 1], gravityFast: [0, 0, 1], cpuMs: 0 }, audioArg = { flow: 0, impact: 0, touch: 0, touchSpeed: 0, dt: 0 };
     function draw(time) {
       const a = renderVec(frameArg.gravity), f = override || gSim, gf = frameArg.gravityFast;
@@ -4859,7 +4868,9 @@ void main(){ vec2 uv = vec2(vUV.x, 1.0 - vUV.y);
       if (frozen) updateGravity(dt, dtReal);                         // test hook: UI and lighting stay live, the sim is left alone
       else {
         const s0 = performance.now();
+        const sm0 = performance.now();
         for (let i = 0; i < n; i++) { updateGravity(dt, dtReal / n); feedGravity(dt); if (sim.step(dt) === true) moving = true; }
+        simMs += ((performance.now() - sm0) / n - simMs) * 0.1;
         lastStepMs = (performance.now() - s0) / n;
         // finger speed (mm/s) for sound and haptics
         const dtt = dt * n;
@@ -5156,6 +5167,22 @@ void main(){ vec2 uv = vec2(vUV.x, 1.0 - vUV.y);
       const rowBox = el('div', 'sb-tilt-row'); rowBox.appendChild(puck); rowBox.appendChild(shk); rowBox.appendChild(lck);
       tiltBox.appendChild(sens); tiltBox.appendChild(rowBox);
 
+      // live diagnostic line (only refreshed while the panel is open)
+      const dg = el('div', 'sb-dgl'); panel.appendChild(dg);
+      let dgDraws = 0, dgT = 0, gpuStr = '';
+      setInterval(() => {
+        if (!root.classList.contains('sb-open') || fatal) return;
+        try {
+          const now = performance.now(), st = (renderer && renderer.stats) || {}, d = (st.draws || 0) - dgDraws, dtS = (now - dgT) / 1000;
+          dgDraws = st.draws || 0; dgT = now;
+          if (!gpuStr) { try { const c = document.createElement('canvas'), g = c.getContext('webgl2'); const x = g && g.getExtension('WEBGL_debug_renderer_info');
+            gpuStr = g ? String(x ? g.getParameter(x.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER)).replace(/^ANGLE \((.*)\)$/, '$1').slice(0, 60) : '?';
+            const lc = g && g.getExtension('WEBGL_lose_context'); if (lc) lc.loseContext(); } catch (e) { gpuStr = '?'; } }
+          dg.textContent = (dtS > 0.2 && dtS < 3 ? Math.round(d / dtS) : 0) + ' img/s · échelle ' + (renderer && renderer.pxScale ? (+renderer.pxScale).toFixed(2) : '?') +
+            ' · sim ' + simMs.toFixed(1) + ' ms · grille ' + sim.W + '×' + sim.H + ' · ' + canvas.width + '×' + canvas.height + ' · dpr ' + (+window.devicePixelRatio).toFixed(2) +
+            (pz < 0.95 ? ' · zoom ' + pz.toFixed(2) : '') + ' · ' + mode + ' · ' + gpuStr;
+        } catch (e) { /* ignore */ }
+      }, 700);
       root.appendChild(tiltBox); root.appendChild(panel); root.appendChild(fab);
     }
 
